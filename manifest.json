@@ -12,6 +12,7 @@
   "permissions": [
     "tabCapture",
     "activeTab",
+    "tabs",
     "offscreen",
     "storage",
     "downloads",

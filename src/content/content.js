@@ -350,8 +350,9 @@
       </div>
       <div class="aerorecord-pill-divider"></div>
       <div class="aerorecord-pill-actions">
-        <button type="button" class="aerorecord-pill-btn" id="aerorecord-pill-btn-pause">Pause</button>
-        <button type="button" class="aerorecord-pill-btn stop" id="aerorecord-pill-btn-stop">Stop</button>
+        <button type="button" class="aerorecord-pill-btn" id="aerorecord-pill-btn-pause" title="Pause / Resume">Pause</button>
+        <button type="button" class="aerorecord-pill-btn stop" id="aerorecord-pill-btn-stop" title="Stop & Save">Stop</button>
+        <button type="button" class="aerorecord-pill-btn close" id="aerorecord-pill-btn-close" title="Hide controls from recording">✕</button>
       </div>
     `;
 
@@ -360,8 +361,9 @@
     const timerEl = floatingPill.querySelector('#aerorecord-pill-timer-text');
     const btnPause = floatingPill.querySelector('#aerorecord-pill-btn-pause');
     const btnStop = floatingPill.querySelector('#aerorecord-pill-btn-stop');
+    const btnClose = floatingPill.querySelector('#aerorecord-pill-btn-close');
 
-    // Make Draggable
+    // Make Draggable across the window/margins
     let isDragging = false;
     let dragStartX = 0;
     let dragStartY = 0;
@@ -369,7 +371,7 @@
     let pillStartY = 0;
 
     floatingPill.addEventListener('mousedown', (e) => {
-      if (e.target.tagName === 'BUTTON') return;
+      if (e.target.closest('button')) return;
       isDragging = true;
       dragStartX = e.clientX;
       dragStartY = e.clientY;
@@ -381,9 +383,13 @@
         if (!isDragging) return;
         const dx = moveEvent.clientX - dragStartX;
         const dy = moveEvent.clientY - dragStartY;
-        floatingPill.style.left = `${Math.max(10, Math.min(window.innerWidth - 220, pillStartX + dx))}px`;
-        floatingPill.style.top = `${Math.max(10, Math.min(window.innerHeight - 50, pillStartY + dy))}px`;
+        // Allow moving to any gutter, margin, or corner
+        const newX = Math.max(-100, Math.min(window.innerWidth - 40, pillStartX + dx));
+        const newY = Math.max(0, Math.min(window.innerHeight - 30, pillStartY + dy));
+        floatingPill.style.left = `${newX}px`;
+        floatingPill.style.top = `${newY}px`;
         floatingPill.style.right = 'auto';
+        floatingPill.style.bottom = 'auto';
       };
 
       const onMouseUp = () => {
@@ -394,6 +400,13 @@
 
       window.addEventListener('mousemove', onMouseMove);
       window.addEventListener('mouseup', onMouseUp);
+    });
+
+    // Dismiss / Hide controls from page
+    btnClose.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeFloatingPill();
+      showToast('In-tab controls hidden. Click AeroRecord in Chrome toolbar to pause or stop.');
     });
 
     // Timer loop
@@ -451,6 +464,41 @@
     }
   }
 
+  // --- Compositor Repaint Heartbeat ---
+  // On idle or static pages (like localhost apps with no ongoing animations), Chromium's
+  // compositor suppresses tab frames. A sub-pixel repaint heartbeat ensures continuous frame delivery.
+  let repaintElement = null;
+  let repaintRaf = null;
+
+  function startRepaintHeartbeat() {
+    if (repaintElement) return;
+    repaintElement = document.createElement('div');
+    repaintElement.id = 'aerorecord-repaint-heartbeat';
+    repaintElement.style.cssText =
+      'position:fixed;bottom:0;right:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:2147483647;';
+    document.documentElement.appendChild(repaintElement);
+
+    let flip = false;
+    function nudge() {
+      if (!repaintElement) return;
+      flip = !flip;
+      repaintElement.style.transform = flip ? 'translateZ(0)' : 'translateZ(1px)';
+      repaintRaf = requestAnimationFrame(nudge);
+    }
+    nudge();
+  }
+
+  function stopRepaintHeartbeat() {
+    if (repaintRaf) {
+      cancelAnimationFrame(repaintRaf);
+      repaintRaf = null;
+    }
+    if (repaintElement) {
+      repaintElement.remove();
+      repaintElement = null;
+    }
+  }
+
   // --- Message Listener ---
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     switch (request.action) {
@@ -460,44 +508,50 @@
           flashHighlight(result.rect);
         }
         sendResponse(result);
-        break;
+        return false;
       }
 
       case ACTIONS.GET_CROP_BOUNDS: {
         const result = detectMobileContainer();
         sendResponse(result);
-        break;
+        return false;
       }
 
       case ACTIONS.START_PICKER: {
         startPicker();
         sendResponse({ success: true });
-        break;
+        return false;
       }
 
       case ACTIONS.STATUS_UPDATE: {
         if (request.status === 'RECORDING') {
-          showFloatingPill(request.startTime, request.accumulatedPausedTime);
-          updateFloatingPillState('RECORDING');
+          startRepaintHeartbeat();
+          if (request.showFloatingControls !== false) {
+            showFloatingPill(request.startTime, request.accumulatedPausedTime);
+            updateFloatingPillState('RECORDING');
+          } else {
+            removeFloatingPill();
+          }
         } else if (request.status === 'PAUSED') {
           updateFloatingPillState('PAUSED');
         } else if (request.status === 'IDLE' || request.status === 'SAVING') {
+          stopRepaintHeartbeat();
           removeFloatingPill();
         }
         sendResponse({ success: true });
-        break;
+        return false;
       }
 
       case ACTIONS.RECORDING_COMPLETE: {
+        stopRepaintHeartbeat();
         removeFloatingPill();
         showToast('Recording saved to your Downloads folder!');
         sendResponse({ success: true });
-        break;
+        return false;
       }
 
       default:
-        break;
+        return false;
     }
-    return true; // Keep message channel open for async response
   });
 })();

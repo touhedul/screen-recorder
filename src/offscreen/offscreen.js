@@ -14,15 +14,25 @@ const videoEl = document.getElementById('tabVideo');
 const canvasEl = document.getElementById('cropCanvas');
 const ctx = canvasEl.getContext('2d', { alpha: false });
 
-// Choose best supported MIME type
-function getSupportedMimeType() {
-  const candidates = [
+// Choose best supported MIME type based on whether audio track is actually present
+function getSupportedMimeType(hasAudio = true) {
+  const candidatesWithAudio = [
     { mime: 'video/webm;codecs=vp9,opus', format: 'webm' },
     { mime: 'video/webm;codecs=vp8,opus', format: 'webm' },
     { mime: 'video/webm', format: 'webm' },
     { mime: 'video/mp4;codecs=avc1,mp4a', format: 'mp4' },
     { mime: 'video/mp4', format: 'mp4' }
   ];
+
+  const candidatesVideoOnly = [
+    { mime: 'video/webm;codecs=vp9', format: 'webm' },
+    { mime: 'video/webm;codecs=vp8', format: 'webm' },
+    { mime: 'video/webm', format: 'webm' },
+    { mime: 'video/mp4;codecs=avc1', format: 'mp4' },
+    { mime: 'video/mp4', format: 'mp4' }
+  ];
+
+  const candidates = hasAudio ? candidatesWithAudio : candidatesVideoOnly;
 
   for (const c of candidates) {
     if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c.mime)) {
@@ -93,26 +103,46 @@ async function startRecording(params) {
       }
     }
 
-    // 3. Audio Mixing
+    // 3. Audio Mixing & Tab Audio Passthrough (so tab remains audible to user)
     let combinedAudioStream = null;
-    if (micStream && micStream.getAudioTracks().length > 0) {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
+    const hasTabAudio = tabStream.getAudioTracks().length > 0;
+    const hasMicAudio = micStream && micStream.getAudioTracks().length > 0;
+
+    if (hasTabAudio || hasMicAudio) {
+      try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume().catch(() => {});
+        }
+        const destination = audioContext.createMediaStreamDestination();
+
+        if (hasTabAudio) {
+          try {
+            const tabSource = audioContext.createMediaStreamSource(tabStream);
+            tabSource.connect(destination);
+            // Connect to audioContext.destination so capturing does not mute the tab locally
+            tabSource.connect(audioContext.destination);
+          } catch (tabRouteErr) {
+            console.warn('[Offscreen] Tab audio routing note:', tabRouteErr);
+          }
+        }
+
+        if (hasMicAudio) {
+          try {
+            const micSource = audioContext.createMediaStreamSource(micStream);
+            micSource.connect(destination);
+          } catch (micRouteErr) {
+            console.warn('[Offscreen] Mic audio routing note:', micRouteErr);
+          }
+        }
+
+        combinedAudioStream = destination.stream;
+      } catch (audioMixErr) {
+        console.warn('[Offscreen] AudioContext setup error:', audioMixErr);
+        if (hasTabAudio) {
+          combinedAudioStream = new MediaStream(tabStream.getAudioTracks());
+        }
       }
-      const destination = audioContext.createMediaStreamDestination();
-
-      if (tabStream.getAudioTracks().length > 0) {
-        const tabSource = audioContext.createMediaStreamSource(tabStream);
-        tabSource.connect(destination);
-      }
-
-      const micSource = audioContext.createMediaStreamSource(micStream);
-      micSource.connect(destination);
-
-      combinedAudioStream = destination.stream;
-    } else if (tabStream.getAudioTracks().length > 0) {
-      combinedAudioStream = new MediaStream(tabStream.getAudioTracks());
     }
 
     // 4. Video Source & Dimension Inspection
@@ -132,20 +162,19 @@ async function startRecording(params) {
       console.warn('[Offscreen] video.play() note:', playErr);
     }
 
-    const videoW = videoEl.videoWidth || 1920;
-    const videoH = videoEl.videoHeight || 1080;
-    const vpW = viewport?.width || videoW;
-    const vpH = viewport?.height || videoH;
-
     const resConfig = RESOLUTIONS[resolution] || RESOLUTIONS['1080p'];
+    const vpW = (viewport && viewport.width > 0) ? viewport.width : (videoEl.videoWidth || 1920);
+    const vpH = (viewport && viewport.height > 0) ? viewport.height : (videoEl.videoHeight || 1080);
 
-    // Check if real cropping is active
-    const isCropping =
-      cropMode !== 'OFF' &&
-      cropRect &&
-      cropRect.width > 50 &&
-      cropRect.height > 50 &&
-      (cropRect.width < vpW - 20 || cropRect.height < vpH - 20);
+    // Check if cropping or canvas scaling should be active
+    const isCropModeRequested = cropMode !== 'OFF';
+    const isViewportMobile = cropRect && (cropRect.width <= 850 || vpW <= 850);
+    const hasSpecificSubRect = cropRect && (
+      cropRect.width < vpW - 20 ||
+      cropRect.height < vpH - 20
+    );
+
+    const isCropping = isCropModeRequested && (hasSpecificSubRect || isViewportMobile);
 
     let outputStream = null;
 
@@ -155,24 +184,22 @@ async function startRecording(params) {
       outputStream = new MediaStream();
       tabStream.getVideoTracks().forEach((track) => outputStream.addTrack(track));
     } else {
-      // Mobile Mode Crop: Setup canvas render loop with reliable setInterval timer
-      const scaleX = videoW / vpW;
-      const scaleY = videoH / vpH;
+      // Mobile Mode Crop & Scale: Setup canvas render loop
+      const subW = (cropRect && cropRect.width > 50) ? cropRect.width : vpW;
+      const subH = (cropRect && cropRect.height > 50) ? cropRect.height : vpH;
+      const cropAspect = subW / subH;
 
-      const sx = Math.max(0, Math.floor(cropRect.x * scaleX));
-      const sy = Math.max(0, Math.floor(cropRect.y * scaleY));
-      const sw = Math.min(Math.floor(cropRect.width * scaleX), videoW - sx);
-      const sh = Math.min(Math.floor(cropRect.height * scaleY), videoH - sy);
-
-      const cropAspect = sw / sh;
       let targetW, targetH;
-
       if (cropAspect <= 0.65) {
         // Tall portrait phone orientation (e.g., 9:16)
         targetH = (resolution === '720p') ? 1280 : 1920;
         targetW = Math.round(targetH * cropAspect);
+      } else if (cropAspect >= 1.5) {
+        // Landscape orientation
+        targetW = (resolution === '720p') ? 1280 : 1920;
+        targetH = Math.round(targetW / cropAspect);
       } else {
-        // Centered app frame / chat window / tablet orientation
+        // Centered app frame / chat window / tablet / square responsive (e.g., 600x600)
         targetH = (resolution === '720p') ? 720 : 1080;
         targetW = Math.round(targetH * cropAspect);
         const maxBoundW = (resolution === '720p') ? 1280 : 1920;
@@ -186,16 +213,34 @@ async function startRecording(params) {
       if (targetW % 2 !== 0) targetW += 1;
       if (targetH % 2 !== 0) targetH += 1;
 
-      canvasEl.width = targetW;
-      canvasEl.height = targetH;
+      canvasEl.width = Math.max(2, targetW);
+      canvasEl.height = Math.max(2, targetH);
 
-      console.log(`[Offscreen] Crop mode active: Source (${videoW}×${videoH}) -> Sub-rect (${sx},${sy},${sw},${sh}) -> Canvas (${targetW}×${targetH})`);
+      console.log(`[Offscreen] Crop mode active: Source (${videoEl.videoWidth}×${videoEl.videoHeight}) -> Canvas (${canvasEl.width}×${canvasEl.height}, Aspect: ${cropAspect.toFixed(2)})`);
 
       isRecordingActive = true;
       const drawFrame = () => {
         if (!isRecordingActive) return;
         try {
-          ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, canvasEl.width, canvasEl.height);
+          const curVidW = videoEl.videoWidth;
+          const curVidH = videoEl.videoHeight;
+
+          if (curVidW > 0 && curVidH > 0) {
+            const scaleX = curVidW / vpW;
+            const scaleY = curVidH / vpH;
+
+            const rx = (cropRect && cropRect.x >= 0) ? cropRect.x : 0;
+            const ry = (cropRect && cropRect.y >= 0) ? cropRect.y : 0;
+            const rw = (cropRect && cropRect.width > 0) ? cropRect.width : vpW;
+            const rh = (cropRect && cropRect.height > 0) ? cropRect.height : vpH;
+
+            const sx = Math.max(0, Math.min(Math.floor(rx * scaleX), curVidW - 1));
+            const sy = Math.max(0, Math.min(Math.floor(ry * scaleY), curVidH - 1));
+            const sw = Math.max(1, Math.min(Math.floor(rw * scaleX), curVidW - sx));
+            const sh = Math.max(1, Math.min(Math.floor(rh * scaleY), curVidH - sy));
+
+            ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, canvasEl.width, canvasEl.height);
+          }
         } catch (drawErr) {
           console.warn('[Offscreen] Canvas draw error:', drawErr);
         }
@@ -208,16 +253,17 @@ async function startRecording(params) {
       outputStream = canvasEl.captureStream(30);
     }
 
-    // Add audio tracks to output stream
-    if (combinedAudioStream) {
+    // Add audio tracks to output stream if present
+    if (combinedAudioStream && combinedAudioStream.getAudioTracks().length > 0) {
       combinedAudioStream.getAudioTracks().forEach((track) => {
         outputStream.addTrack(track);
       });
     }
 
     // 5. Initialize MediaRecorder
-    const chosenType = getSupportedMimeType();
-    console.log(`[Offscreen] Using MIME type: "${chosenType.mime}" (format: ${chosenType.format})`);
+    const hasAudio = outputStream.getAudioTracks().length > 0;
+    const chosenType = getSupportedMimeType(hasAudio);
+    console.log(`[Offscreen] Using MIME type: "${chosenType.mime}" (format: ${chosenType.format}, hasAudio: ${hasAudio})`);
 
     const recorderOptions = {
       videoBitsPerSecond: resConfig.videoBitrate
@@ -234,6 +280,14 @@ async function startRecording(params) {
         recordedChunks.push(event.data);
         console.log(`[Offscreen] Chunk received: ${event.data.size} bytes (Total chunks: ${recordedChunks.length})`);
       }
+    };
+
+    mediaRecorder.onerror = (recErr) => {
+      console.error('[Offscreen] MediaRecorder runtime error:', recErr);
+      chrome.runtime.sendMessage({
+        action: ACTIONS.RECORDING_ERROR,
+        error: recErr?.error?.message || 'MediaRecorder encountered a runtime error'
+      }).catch(() => {});
     };
 
     mediaRecorder.onstop = async () => {
@@ -296,19 +350,7 @@ async function finalizeAndDownload(format, tabTitle) {
     // Create fast, lightweight Blob URL
     const blobUrl = URL.createObjectURL(finalBlob);
 
-    // Fallback direct download trigger inside offscreen document
-    try {
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => a.remove(), 2000);
-    } catch (aErr) {
-      console.log('[Offscreen] Direct anchor download note:', aErr);
-    }
-
-    // Send blobUrl to service worker for chrome.downloads
+    // Send blobUrl to service worker for single chrome.downloads download
     chrome.runtime.sendMessage({
       action: 'DOWNLOAD_RECORDING',
       url: blobUrl,
@@ -378,7 +420,10 @@ function cleanupStreams() {
 
 // Message Listener
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === ACTIONS.START_RECORDING) {
+  if (request.action === ACTIONS.OFFSCREEN_READY) {
+    sendResponse({ success: true, ready: true });
+    return false;
+  } else if (request.action === ACTIONS.START_RECORDING) {
     startRecording(request)
       .then((res) => sendResponse(res))
       .catch((err) => sendResponse({ error: err.message }));
@@ -397,3 +442,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 });
+
+// Announce offscreen ready state immediately upon module load
+chrome.runtime.sendMessage({ action: ACTIONS.OFFSCREEN_READY }).catch(() => {});

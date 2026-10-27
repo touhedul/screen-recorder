@@ -154,6 +154,21 @@
   box-shadow: 0 3px 14px rgba(239, 68, 68, 0.6);
 }
 
+.aerorecord-pill-btn.close {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #94A3B8;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.aerorecord-pill-btn.close:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #F87171;
+}
+
 /* Toast Notification */
 #aerorecord-toast {
   position: fixed;

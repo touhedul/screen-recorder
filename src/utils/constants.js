@@ -63,5 +63,6 @@ export const DEFAULT_SETTINGS = {
   resolution: '1080p',
   cropMode: CROP_MODES.AUTO,
   recordMic: false,
-  format: 'mp4' // mp4 with webm fallback
+  format: 'mp4', // mp4 with webm fallback
+  showFloatingControls: true
 };

@@ -19,6 +19,10 @@ const micToggleCard = document.getElementById('micToggleCard');
 const micCheckbox = document.getElementById('micCheckbox');
 const micSubtext = document.getElementById('micSubtext');
 
+const pillToggleCard = document.getElementById('pillToggleCard');
+const pillCheckbox = document.getElementById('pillCheckbox');
+const pillSubtext = document.getElementById('pillSubtext');
+
 const btnStartRecording = document.getElementById('btnStartRecording');
 const btnPauseResume = document.getElementById('btnPauseResume');
 const pauseIcon = document.getElementById('pauseIcon');
@@ -124,13 +128,42 @@ function setView(state, data = {}) {
   }
 }
 
+// Helper to check for restricted browser system URLs
+function isRestrictedUrl(url) {
+  if (!url) return false;
+  return (
+    url.startsWith('chrome://') ||
+    url.startsWith('chrome-extension://') ||
+    url.startsWith('devtools://') ||
+    url.startsWith('edge://') ||
+    url.startsWith('about:')
+  );
+}
+
+// Robust target tab query with fallback for DevTools focus
+async function getTargetTab() {
+  try {
+    let [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab || !activeTab.id || isRestrictedUrl(activeTab.url)) {
+      const lastFocused = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (lastFocused.length > 0 && lastFocused[0].id) {
+        activeTab = lastFocused[0];
+      }
+    }
+    return activeTab || null;
+  } catch (err) {
+    console.warn('[Popup] getTargetTab error:', err);
+    return null;
+  }
+}
+
 // Check active tab for mobile mode or restricted URL
 async function inspectActiveTab() {
   try {
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const activeTab = await getTargetTab();
     if (!activeTab || !activeTab.id) return;
 
-    if (activeTab.url?.startsWith('chrome://') || activeTab.url?.startsWith('chrome-extension://')) {
+    if (isRestrictedUrl(activeTab.url)) {
       detectedContainerNotice.classList.remove('hidden');
       detectedContainerNotice.style.background = 'rgba(239, 68, 68, 0.12)';
       detectedContainerNotice.style.borderColor = 'rgba(239, 68, 68, 0.3)';
@@ -184,6 +217,10 @@ async function initPopup() {
   micCheckbox.checked = !!settings.recordMic;
   micSubtext.textContent = micCheckbox.checked ? 'Enabled for recording' : 'Voiceover commentary';
 
+  // Apply In-Tab Controls
+  pillCheckbox.checked = settings.showFloatingControls !== false;
+  pillSubtext.textContent = pillCheckbox.checked ? 'Show timer & buttons on page' : 'Hidden (Clean recording, control via icon)';
+
   // Check current status from service worker
   chrome.runtime.sendMessage({ action: ACTIONS.GET_STATUS }, (response) => {
     if (chrome.runtime.lastError || !response) {
@@ -220,7 +257,7 @@ cropModeGrid.addEventListener('click', async (e) => {
 
   if (mode === CROP_MODES.MANUAL) {
     // Trigger visual element picker in active tab and close popup
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     if (tab && tab.id) {
       chrome.tabs.sendMessage(tab.id, { action: ACTIONS.START_PICKER });
       window.close();
@@ -256,6 +293,20 @@ micToggleCard.addEventListener('click', (e) => {
   }
 });
 
+// In-Tab Controls toggle
+pillCheckbox.addEventListener('change', async () => {
+  const enabled = pillCheckbox.checked;
+  pillSubtext.textContent = enabled ? 'Show timer & buttons on page' : 'Hidden (Clean recording, control via icon)';
+  await saveSettings({ showFloatingControls: enabled });
+});
+
+pillToggleCard.addEventListener('click', (e) => {
+  if (e.target !== pillCheckbox) {
+    pillCheckbox.checked = !pillCheckbox.checked;
+    pillCheckbox.dispatchEvent(new Event('change'));
+  }
+});
+
 // Start Recording
 btnStartRecording.addEventListener('click', async () => {
   btnStartRecording.disabled = true;
@@ -267,15 +318,15 @@ btnStartRecording.addEventListener('click', async () => {
   };
 
   try {
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const activeTab = await getTargetTab();
     if (!activeTab || !activeTab.id) {
-      alert('Unable to capture: No active tab found.');
+      alert('Unable to capture: No active tab found. Please focus the webpage tab you want to record.');
       resetBtn();
       return;
     }
 
-    if (activeTab.url?.startsWith('chrome://') || activeTab.url?.startsWith('chrome-extension://')) {
-      alert('Chrome security does not permit recording internal browser pages (chrome://). Please navigate to any standard web page (http:// or https://) to record.');
+    if (isRestrictedUrl(activeTab.url)) {
+      alert('Browser system pages cannot be recorded. Please navigate to a standard web page or your localhost app (e.g. http://localhost:5173/) to record.');
       resetBtn();
       return;
     }
@@ -298,7 +349,8 @@ btnStartRecording.addEventListener('click', async () => {
           tabTitle: activeTab.title,
           resolution: currentResolution,
           cropMode: currentCropMode,
-          recordMic: micCheckbox.checked
+          recordMic: micCheckbox.checked,
+          showFloatingControls: pillCheckbox.checked
         },
         (res) => {
           resetBtn();

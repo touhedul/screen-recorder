@@ -11,10 +11,13 @@ let currentRecordingState = {
   cropMode: CROP_MODES.AUTO,
   cropRect: null,
   recordMic: false,
+  showFloatingControls: true,
   startTime: 0,
   pausedTimestamp: 0,
   accumulatedPausedTime: 0
 };
+
+let offscreenReadyResolver = null;
 
 // Check if offscreen document exists
 async function hasOffscreenDocument() {
@@ -30,11 +33,25 @@ async function ensureOffscreenDocument() {
   if (await hasOffscreenDocument()) {
     return;
   }
+
+  const readyPromise = new Promise((resolve) => {
+    offscreenReadyResolver = resolve;
+    // Safety fallback timeout
+    setTimeout(() => {
+      if (offscreenReadyResolver) {
+        offscreenReadyResolver();
+        offscreenReadyResolver = null;
+      }
+    }, 1500);
+  });
+
   await chrome.offscreen.createDocument({
     url: OFFSCREEN_DOCUMENT_PATH,
     reasons: ['USER_MEDIA', 'DISPLAY_MEDIA', 'LOCAL_STORAGE'],
     justification: 'Offscreen canvas rendering, audio mixing, and OPFS stream recording.'
   });
+
+  await readyPromise;
 }
 
 // Close offscreen document
@@ -77,7 +94,14 @@ function broadcastStatus() {
 
 // Handle Start Recording
 async function handleStartRecording(params) {
-  const { tabId, tabTitle, resolution = '1080p', cropMode = CROP_MODES.AUTO, recordMic = false } = params;
+  const {
+    tabId,
+    tabTitle,
+    resolution = '1080p',
+    cropMode = CROP_MODES.AUTO,
+    recordMic = false,
+    showFloatingControls = true
+  } = params;
 
   if (currentRecordingState.status === STATUS.RECORDING) {
     throw new Error('Recording is already in progress');
@@ -97,11 +121,13 @@ async function handleStartRecording(params) {
     console.log('[ServiceWorker] Content script injection note:', injectErr.message);
   }
 
-  // Obtain crop bounds from content script
+  // Obtain crop bounds from content script with timeout so it never hangs
   let cropInfo = null;
   try {
     cropInfo = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), 600);
       chrome.tabs.sendMessage(tabId, { action: ACTIONS.GET_CROP_BOUNDS }, (res) => {
+        clearTimeout(timer);
         if (chrome.runtime.lastError) resolve(null);
         else resolve(res);
       });
@@ -132,29 +158,41 @@ async function handleStartRecording(params) {
   // Setup offscreen document
   await ensureOffscreenDocument();
 
-  // Send start command to offscreen document
-  const offscreenResponse = await new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(
-      {
-        action: ACTIONS.START_RECORDING,
-        streamId,
-        resolution,
-        cropMode,
-        cropRect: cropInfo?.rect || null,
-        viewport: cropInfo?.viewport || null,
-        recordMic,
-        tabTitle
-      },
-      (res) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-        } else if (res && res.error) {
-          reject(new Error(res.error));
+  // Send start command to offscreen document with retry in case message channel needs a moment
+  const sendToOffscreenWithRetry = async (payload, maxRetries = 3) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage(payload, (res) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message));
+            } else if (res && res.error) {
+              reject(new Error(res.error));
+            } else {
+              resolve(res);
+            }
+          });
+        });
+      } catch (err) {
+        if (attempt < maxRetries && err.message.includes('Receiving end does not exist')) {
+          console.log(`[ServiceWorker] Offscreen not ready yet, retry ${attempt}/${maxRetries}...`);
+          await new Promise((r) => setTimeout(r, 200));
         } else {
-          resolve(res);
+          throw err;
         }
       }
-    );
+    }
+  };
+
+  const offscreenResponse = await sendToOffscreenWithRetry({
+    action: ACTIONS.START_RECORDING,
+    streamId,
+    resolution,
+    cropMode,
+    cropRect: cropInfo?.rect || null,
+    viewport: cropInfo?.viewport || null,
+    recordMic,
+    tabTitle
   });
 
   currentRecordingState = {
@@ -165,6 +203,7 @@ async function handleStartRecording(params) {
     cropMode,
     cropRect: cropInfo?.rect || null,
     recordMic,
+    showFloatingControls,
     startTime: offscreenResponse?.startTime || Date.now(),
     pausedTimestamp: 0,
     accumulatedPausedTime: 0
@@ -245,6 +284,7 @@ async function handleDownload(url, filename) {
       cropMode: CROP_MODES.AUTO,
       cropRect: null,
       recordMic: false,
+      showFloatingControls: true,
       startTime: 0,
       pausedTimestamp: 0,
       accumulatedPausedTime: 0
@@ -263,6 +303,15 @@ async function handleDownload(url, filename) {
 // Message Listener
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   switch (request.action) {
+    case ACTIONS.OFFSCREEN_READY: {
+      if (offscreenReadyResolver) {
+        offscreenReadyResolver();
+        offscreenReadyResolver = null;
+      }
+      sendResponse({ success: true });
+      return false;
+    }
+
     case ACTIONS.GET_STATUS: {
       sendResponse(currentRecordingState);
       return false;
