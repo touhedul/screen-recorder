@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AeroRecord Test Playground - Mobile Frame & Tab Test</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1e1b4b 0%, #0f172a 60%, #020617 100%);
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px 20px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 24px;
+      max-width: 600px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #a5b4fc, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 6px;
+    }
+
+    p {
+      color: #94a3b8;
+      font-size: 13px;
+    }
+
+    /* Outer Desktop Canvas Area */
+    .desktop-decorations {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+
+    /* Mobile Phone Simulator Container */
+    .mobile-phone-frame {
+      width: 380px;
+      height: 720px;
+      background: #090d16;
+      border-radius: 44px;
+      border: 10px solid #2d3748;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.1);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Phone Speaker / Dynamic Island */
+    .phone-notch {
+      width: 110px;
+      height: 24px;
+      background: #1a202c;
+      border-radius: 20px;
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .notch-camera {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #0f172a;
+      margin-left: 50px;
+      border: 1px solid #334155;
+    }
+
+    /* Inside the mobile phone */
+    .phone-screen {
+      flex: 1;
+      padding: 44px 18px 24px;
+      display: flex;
+      flex-direction: column;
+      background: linear-gradient(180deg, #111827 0%, #030712 100%);
+      overflow-y: auto;
+    }
+
+    .phone-app-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .user-greeting {
+      font-size: 18px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1, #a855f7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    .card h3 {
+      font-size: 14px;
+      margin-bottom: 6px;
+      color: #e2e8f0;
+    }
+
+    .card p {
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+
+    .animated-counter-box {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.15));
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      border-radius: 16px;
+      padding: 18px;
+      text-align: center;
+      margin-bottom: 14px;
+    }
+
+    .counter-value {
+      font-size: 32px;
+      font-weight: 800;
+      color: #818cf8;
+      font-variant-numeric: tabular-nums;
+      margin: 8px 0;
+    }
+
+    .interactive-btn {
+      width: 100%;
+      padding: 12px;
+      background: #4f46e5;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .interactive-btn:hover {
+      background: #4338ca;
+      transform: scale(0.98);
+    }
+
+    /* Audio visualizer bar inside phone */
+    .wave-bars {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      height: 36px;
+      margin-top: 10px;
+    }
+
+    .bar {
+      width: 4px;
+      height: 10px;
+      background: #6366f1;
+      border-radius: 2px;
+      animation: wave 1s ease-in-out infinite alternate;
+    }
+
+    .bar:nth-child(2) { animation-delay: 0.2s; height: 18px; }
+    .bar:nth-child(3) { animation-delay: 0.4s; height: 26px; }
+    .bar:nth-child(4) { animation-delay: 0.1s; height: 22px; }
+    .bar:nth-child(5) { animation-delay: 0.5s; height: 14px; }
+
+    @keyframes wave {
+      0% { height: 6px; }
+      100% { height: 32px; }
+    }
+
+    .home-bar {
+      width: 120px;
+      height: 4px;
+      background: #4a5568;
+      border-radius: 2px;
+      margin: 12px auto 6px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>AeroRecord Test Playground</h1>
+    <p>Use this page to test single-tab recording, mobile container auto-crop, and the frame selector.</p>
+  </header>
+
+  <div class="desktop-decorations">
+    <span class="badge">💻 Desktop Viewport: <span id="winSize">--</span></span>
+    <span class="badge">📱 Mobile Container: 380 × 720px</span>
+    <button class="badge" id="btnPlaySound" style="cursor: pointer; background: rgba(99,102,241,0.2);">🔊 Test Tab Sound</button>
+  </div>
+
+  <!-- Mobile phone frame container that AeroRecord auto-detects -->
+  <div class="mobile-phone-frame" id="mobilePreviewFrame">
+    <div class="phone-notch">
+      <div class="notch-camera"></div>
+    </div>
+
+    <div class="phone-screen">
+      <div class="phone-app-header">
+        <div>
+          <span style="font-size: 11px; color: #a5b4fc; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Mobile App View</span>
+          <div class="user-greeting">Welcome back!</div>
+        </div>
+        <div class="avatar">AR</div>
+      </div>
+
+      <div class="animated-counter-box">
+        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: #cbd5e1;">Live Screen Timer</span>
+        <div class="counter-value" id="counter">0.0s</div>
+        <div class="wave-bars">
+          <div class="bar"></div>
+          <div class="bar"></div>
+          <div class="bar"></div>
+          <div class="bar"></div>
+          <div class="bar"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>⚡ Intelligent Crop</h3>
+        <p>AeroRecord isolates this 380×720 mobile phone frame, removing the outer dark desktop background.</p>
+      </div>
+
+      <div class="card">
+        <h3>🎥 1080p / 720p HD</h3>
+        <p>Scaled crisply to your chosen resolution with zero distortion.</p>
+      </div>
+
+      <button type="button" class="interactive-btn" id="btnClickMe">Tap Me For Interaction</button>
+
+      <div class="home-bar"></div>
+    </div>
+  </div>
+
+  <script>
+    // Live viewport dimensions
+    const winSize = document.getElementById('winSize');
+    function updateWin() {
+      winSize.textContent = `${window.innerWidth} × ${window.innerHeight} px`;
+    }
+    window.addEventListener('resize', updateWin);
+    updateWin();
+
+    // Timer inside phone screen
+    const counterEl = document.getElementById('counter');
+    let startTime = Date.now();
+    setInterval(() => {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      counterEl.textContent = `${elapsed}s`;
+    }, 100);
+
+    // Interaction button
+    let clicks = 0;
+    const btn = document.getElementById('btnClickMe');
+    btn.addEventListener('click', () => {
+      clicks++;
+      btn.textContent = `Tapped ${clicks} time${clicks === 1 ? '' : 's'}!`;
+    });
+
+    // Sound test
+    document.getElementById('btnPlaySound').addEventListener('click', () => {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, audioCtx.currentTime); // A4
+      osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.3);
+    });
+  </script>
+</body>
+</html>

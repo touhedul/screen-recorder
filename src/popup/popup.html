@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AeroRecord</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-wrapper">
+          <div class="logo-orb"></div>
+          <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="3" ry="3"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+            <circle cx="12" cy="10" r="2.5" fill="#EF4444" stroke="none"></circle>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>AeroRecord</h1>
+          <span class="brand-tag">Tab & Screen</span>
+        </div>
+      </div>
+      <div id="statusBadge" class="status-badge idle">
+        <span class="badge-dot"></span>
+        <span id="statusText">Ready</span>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="app-body">
+      <!-- Idle State Controls -->
+      <section id="idleControls" class="view-section active">
+        <!-- Resolution Picker -->
+        <div class="control-group">
+          <label class="section-label">
+            <span>Video Resolution</span>
+            <span class="badge-subtle">60 FPS</span>
+          </label>
+          <div class="segment-picker" id="resolutionPicker" role="radiogroup">
+            <button type="button" class="segment-btn" data-resolution="720p" role="radio" aria-checked="false">
+              <span class="res-title">720p</span>
+              <span class="res-sub">Fast • 3.5 Mbps</span>
+            </button>
+            <button type="button" class="segment-btn active" data-resolution="1080p" role="radio" aria-checked="true">
+              <span class="res-title">1080p</span>
+              <span class="res-sub">Crisp • 7.5 Mbps</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Mobile Crop Mode Handling -->
+        <div class="control-group">
+          <label class="section-label">
+            <span>Recording Area</span>
+            <span class="badge-subtle" id="cropBadge">Smart Crop</span>
+          </label>
+          <div class="crop-grid" id="cropModeGrid">
+            <button type="button" class="crop-option active" data-mode="AUTO" title="Auto-detects mobile viewport / DevTools phone simulation">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="7" y="2" width="10" height="20" rx="2" ry="2"></rect>
+                <circle cx="12" cy="18" r="1"></circle>
+              </svg>
+              <div class="crop-info">
+                <strong>Auto Mobile</strong>
+                <small>DevTools / Responsive</small>
+              </div>
+            </button>
+
+            <button type="button" class="crop-option" data-mode="MANUAL" id="btnPickContainer" title="Select specific mobile container or phone mockup on the page">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 8V4h4"></path>
+                <path d="M20 8V4h-4"></path>
+                <path d="M4 16v4h4"></path>
+                <path d="M20 16v4h-4"></path>
+                <rect x="8" y="8" width="8" height="8" rx="1"></rect>
+              </svg>
+              <div class="crop-info">
+                <strong>Pick Frame</strong>
+                <small>Click any element</small>
+              </div>
+            </button>
+
+            <button type="button" class="crop-option" data-mode="OFF" title="Record entire browser tab without cropping">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                <path d="M8 21h8"></path>
+                <path d="M12 17v4"></path>
+              </svg>
+              <div class="crop-info">
+                <strong>Full Tab</strong>
+                <small>Full window</small>
+              </div>
+            </button>
+          </div>
+          <div id="detectedContainerNotice" class="detected-notice hidden">
+            <span class="notice-icon">📱</span>
+            <span id="detectedNoticeText">Mobile layout detected in tab</span>
+          </div>
+        </div>
+
+        <!-- Audio Settings -->
+        <div class="control-group">
+          <label class="section-label">
+            <span>Audio Sources</span>
+          </label>
+          <div class="toggle-card">
+            <div class="toggle-info">
+              <div class="toggle-icon-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                </svg>
+              </div>
+              <div class="toggle-label">
+                <strong>Tab Audio</strong>
+                <small>Included automatically</small>
+              </div>
+            </div>
+            <span class="badge-locked">Active</span>
+          </div>
+
+          <div class="toggle-card clickable" id="micToggleCard">
+            <div class="toggle-info">
+              <div class="toggle-icon-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="23"></line>
+                  <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+              </div>
+              <div class="toggle-label">
+                <strong>Microphone</strong>
+                <small id="micSubtext">Voiceover commentary</small>
+              </div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="micCheckbox">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Primary Start Button -->
+        <button type="button" class="btn-primary" id="btnStartRecording">
+          <span class="btn-pulse-glow"></span>
+          <span class="btn-icon-rec"></span>
+          <span class="btn-text">Record This Tab</span>
+        </button>
+      </section>
+
+      <!-- Active Recording State View -->
+      <section id="recordingControls" class="view-section hidden">
+        <div class="recording-card">
+          <div class="live-rec-header">
+            <div class="pulse-indicator">
+              <span class="pulse-ring"></span>
+              <span class="pulse-dot"></span>
+            </div>
+            <span class="live-label" id="recordingStateLabel">RECORDING TAB</span>
+          </div>
+
+          <!-- Timer Display -->
+          <div class="timer-display">
+            <span id="timerText" class="timer-value">00:00:00</span>
+          </div>
+
+          <div class="recording-meta">
+            <span class="meta-pill" id="metaResolution">1080p</span>
+            <span class="meta-pill" id="metaCrop">Mobile Mode</span>
+            <span class="meta-pill" id="metaFormat">MP4</span>
+          </div>
+        </div>
+
+        <div class="action-buttons-grid">
+          <button type="button" class="btn-secondary" id="btnPauseResume">
+            <svg id="pauseIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="6" y="4" width="4" height="16"></rect>
+              <rect x="14" y="4" width="4" height="16"></rect>
+            </svg>
+            <span id="pauseBtnText">Pause</span>
+          </button>
+
+          <button type="button" class="btn-danger" id="btnStopRecording">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+            </svg>
+            <span>Stop & Save</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Saving / Processing State -->
+      <section id="savingControls" class="view-section hidden">
+        <div class="saving-card">
+          <div class="spinner-orbit">
+            <div class="orbit-glow"></div>
+          </div>
+          <h3>Finalizing Recording...</h3>
+          <p>Exporting high-resolution MP4 directly to your downloads.</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+        <span>No time limits • OPFS continuous stream</span>
+      </div>
+    </footer>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
